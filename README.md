@@ -36,7 +36,7 @@ PIR OUT  →  D2 (GPIO4)
 Relé VCC  →  Vin (5V) — compartido con PIR
 Relé GND  →  GND
 Relé IN   →  D1 (GPIO5)
-Jumper    →  LOW (activo LOW)
+Jumper    →  HIGH (de fábrica, recomendado)
 ```
 
 ### Buzzer Pasivo
@@ -65,10 +65,16 @@ Buzzer - (-)  →  GND
 - La lente Fresnel (óvalo blanco) es necesaria para el ángulo de detección amplio
 - Debajo de la lente están impresos los nombres de los pines
 
-### Relé
+### Lógica del Relé (Jumper)
 
-- Jumper en LOW = activo LOW (recomendado para ESP8266)
-- En modo LOW, el relé NO se activa accidentalmente al bootear el ESP8266
+- El módulo Bestep tiene un jumper físico para elegir HIGH o LOW trigger
+- Jumper en HIGH (posición de fábrica, recomendado): `digitalWrite LOW` = relé apagado, `digitalWrite HIGH` = relé activado
+- Jumper en LOW: lógica invertida, LOW activa y HIGH apaga
+- Dejar el jumper como viene de fábrica (HIGH) y adaptar el código es lo más seguro
+- Con jumper en HIGH, al bootear el ESP8266 el relé NO se activa accidentalmente porque los pines arrancan en LOW
+- La bornera de potencia tiene 3 tornillos: COM (medio), NO (Normally Open) y NC (Normally Closed)
+- Para que la luz se prenda al detectar: conectar los cables en COM y NO
+- Si la luz queda prendida siempre y se apaga al detectar, los cables están en COM y NC → moverlos a NO
 - Los pines de control se conectan con Dupont macho atornillado en la bornera
 - Click audible confirma activación
 
