@@ -6,24 +6,7 @@
 
 ## Estado: FUNCIONANDO ✓
 
-Sistema completo probado y operativo: PIR + Relé + Buzzer + WiFi + Telegram + OTA + modo nocturno automático.
-
-## Funcionalidades
-
-- **Detección PIR** con luz (relé) y buzzer
-- **Notificaciones Telegram** con cooldown de 60 seg
-- **OTA (Over The Air)** — actualización inalámbrica sin cable USB
-  - Hostname: `sensor-pasillo`
-  - Password: `pablo123`
-  - Desde Arduino IDE: Puerto → `sensor-pasillo` (aparece en red)
-- **Modo nocturno automático** con Dusk2Dawn
-  - Coordenadas Caseros: -34.60, -58.56, UTC-3
-  - La luz solo se prende de noche (entre atardecer y amanecer)
-  - De día detecta movimiento pero no activa relé ni buzzer
-  - Notificación al cambiar de modo (amanecer/atardecer)
-- **Resumen diario por Telegram** a medianoche
-  - Cantidad de activaciones del día
-  - Horarios de amanecer y atardecer calculados
+Sistema completo probado y operativo: PIR + Relé + Buzzer + WiFi + Telegram.
 
 ## Hardware (x4 de cada uno)
 
@@ -66,7 +49,7 @@ Buzzer - (-)  →  GND
 
 ## Lecciones aprendidas
 
-### Voltajes (CRITICO)
+### Voltajes (CRÍTICO)
 
 - El PIR HC-SR501 necesita mínimo 4.5V → usar Vin (5V), NO 3V3
 - El relé Bestep aunque dice 3.3V, al activarse consume un pico de corriente que reinicia el ESP8266 si se alimenta desde 3V3 → usar Vin (5V)
@@ -110,25 +93,12 @@ Buzzer - (-)  →  GND
 - Frecuencia más alta = sonido más agudo y perceptible
 - No tiene mucha potencia, para alarma real necesitás sirena piezoeléctrica 12V
 
-### Dusk2Dawn en Linux (bugs conocidos)
-
-La librería Dusk2Dawn tiene bugs que rompen la compilación en Linux:
-
-1. **`Math.h` → `math.h`**: el include usa `Math.h` (mayúscula) que solo existe en Windows/macOS. En Linux es case-sensitive → renombrar a `math.h` en el `.cpp` de la librería.
-2. **`static` en `min2str` y `zeroPadTime`**: estas funciones están declaradas `static` en el `.cpp` pero expuestas en el `.h` → quitar `static` del `.cpp` para que linkee correctamente.
-
-Ubicación típica de la librería:
-```
-~/Arduino/libraries/Dusk2Dawn/src/Dusk2Dawn.cpp
-```
-
 ## Software
 
 - **Arduino IDE 2.3.8** (AppImage en `~/arduino-ide.AppImage`)
 - **Board:** ESP8266 Community → NodeMCU 1.0 (ESP-12E Module)
-- **Puerto:** `/dev/ttyUSB0` (cable) o `sensor-pasillo` (OTA por red)
+- **Puerto:** `/dev/ttyUSB0`
 - **Board Manager URL:** `http://arduino.esp8266.com/stable/package_esp8266com_index.json`
-- **Librerías adicionales:** Dusk2Dawn (instalar desde Library Manager)
 - Fedora necesita FUSE: `sudo dnf install fuse fuse-libs`
 - Usuario debe estar en grupo dialout: `sudo usermod -aG dialout pepe` + `newgrp dialout`
 
@@ -137,18 +107,16 @@ Ubicación típica de la librería:
 - Crear bot con @BotFather → `/newbot`
 - Obtener chat_id: mandar mensaje al bot y consultar `getUpdates`
 - Cooldown de 60 segundos entre notificaciones para no spamear
-- Resumen diario automático a medianoche con cantidad de activaciones
 
 ## Parámetros ajustables en el código
 
 - `TIEMPO_LUZ_MS`: cuánto tiempo queda encendida la luz (default 30 seg)
 - `COOLDOWN_TELEGRAM_MS`: tiempo mínimo entre notificaciones Telegram (default 60 seg)
 - `tone(PIN_BUZZER, frecuencia, duración)`: ajustar sonido del buzzer
-- Coordenadas Dusk2Dawn: latitud, longitud, timezone UTC offset
-- OTA hostname y password
 
 ## Próximos pasos
 
 1. Instalar en caja estanca con silicona en la lente del PIR
 2. Conectar luz 220V a la bornera del relé (COM y NO)
 3. Replicar para los 4 sensores
+4. Agregar control por horario (solo de noche) via NTP
