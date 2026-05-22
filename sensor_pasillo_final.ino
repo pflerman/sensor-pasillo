@@ -187,6 +187,23 @@ String formatoHora(int minutos) {
   return String(buf);
 }
 
+String urlEncode(const String& text) {
+  String encoded = "";
+  for (unsigned int i = 0; i < text.length(); i++) {
+    char c = text.charAt(i);
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      encoded += c;
+    } else if (c == ' ') {
+      encoded += "%20";
+    } else {
+      char buf[4];
+      sprintf(buf, "%%%02X", (unsigned char)c);
+      encoded += buf;
+    }
+  }
+  return encoded;
+}
+
 void enviarTelegram(String mensaje) {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -196,7 +213,7 @@ void enviarTelegram(String mensaje) {
   HTTPClient http;
   String url = "https://api.telegram.org/bot" + BOT_TOKEN
              + "/sendMessage?chat_id=" + CHAT_ID
-             + "&text=" + mensaje;
+             + "&text=" + urlEncode(mensaje);
 
   http.begin(client, url);
   int httpCode = http.GET();
