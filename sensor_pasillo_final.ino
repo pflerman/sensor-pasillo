@@ -19,6 +19,7 @@ const int PIN_RELE   = 5;   // D1
 // ── Tiempos ──────────────────────────────────────────────────
 const unsigned long TIEMPO_LUZ_MS        = 30000;
 const unsigned long COOLDOWN_TELEGRAM_MS = 60000;
+const unsigned long POLL_TELEGRAM_MS     = 5000;
 
 // ── Ubicación (Caseros, Buenos Aires) ────────────────────────
 Dusk2Dawn caseros(-34.60, -58.56, -3);  // lat, lon, UTC-3
@@ -30,10 +31,15 @@ const long  GMT_OFFSET = -3 * 3600;
 // ── Estado ───────────────────────────────────────────────────
 unsigned long ultimaDeteccion    = 0;
 unsigned long ultimaNotificacion = 0;
+unsigned long ultimoPollTelegram = 0;
 bool luzEncendida   = false;
 bool modoNocturno   = false;
+bool modoManual     = false;
 int  diaActual      = -1;
 int  contadorDiario = 0;
+long ultimoUpdateId = 0;
+String comandoPendiente = "";
+String callbackPendiente = "";
 
 int minutoAmanecer = 0;
 int minutoAtardecer = 0;
@@ -81,7 +87,8 @@ void setup() {
   Serial.println(" OK");
 
   calcularAmanecerAtardecer();
-  enviarTelegram("Sistema sensor pasillo iniciado (OTA + modo nocturno).");
+  descartarMensajesViejos();
+  enviarTelegramConBotones("Sistema sensor pasillo iniciado (OTA + modo nocturno).");
   Serial.println("Listo! Sistema activo.");
 }
 
@@ -92,6 +99,22 @@ void loop() {
   time_t now = time(nullptr);
   struct tm* t = localtime(&now);
   int minutoDelDia = t->tm_hour * 60 + t->tm_min;
+
+  // Poll Telegram cada 5 segundos
+  if (ahora - ultimoPollTelegram > POLL_TELEGRAM_MS) {
+    ultimoPollTelegram = ahora;
+    revisarComandosTelegram();
+  }
+
+  // Procesar comando después de liberar memoria de getUpdates
+  if (comandoPendiente != "") {
+    if (callbackPendiente != "") {
+      responderCallback(callbackPendiente);
+      callbackPendiente = "";
+    }
+    procesarComando(comandoPendiente);
+    comandoPendiente = "";
+  }
 
   // Cambio de día → resumen + recalcular amanecer/atardecer
   if (t->tm_mday != diaActual) {
@@ -120,6 +143,9 @@ void loop() {
     enviarTelegram(msg);
   }
 
+  // En modo manual el PIR no controla el relé
+  if (modoManual) return;
+
   bool hayMovimiento = digitalRead(PIN_PIR) == HIGH;
 
   if (hayMovimiento) {
@@ -135,11 +161,6 @@ void loop() {
         Serial.println("Movimiento diurno — luz omitida");
       }
 
-      if (ahora - ultimaNotificacion > COOLDOWN_TELEGRAM_MS) {
-        ultimaNotificacion = ahora;
-        String modo = modoNocturno ? "nocturno" : "diurno";
-        enviarTelegram("Movimiento detectado (" + modo + ")");
-      }
     }
   }
 
@@ -148,6 +169,137 @@ void loop() {
     luzEncendida = false;
     Serial.println("Sin movimiento — luz OFF");
   }
+}
+
+void descartarMensajesViejos() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  String url = "https://api.telegram.org/bot" + BOT_TOKEN
+             + "/getUpdates?offset=-1&limit=1";
+  http.begin(client, url);
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String response = http.getString();
+    int uidIdx = response.indexOf("\"update_id\":");
+    if (uidIdx != -1) {
+      int uidStart = uidIdx + 12;
+      int uidEnd = response.indexOf(",", uidStart);
+      if (uidEnd == -1) uidEnd = response.indexOf("}", uidStart);
+      ultimoUpdateId = response.substring(uidStart, uidEnd).toInt();
+      Serial.println("Telegram: descartados mensajes viejos, offset=" + String(ultimoUpdateId));
+    }
+  }
+  http.end();
+}
+
+void revisarComandosTelegram() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  String url = "https://api.telegram.org/bot" + BOT_TOKEN
+             + "/getUpdates?offset=" + String(ultimoUpdateId + 1)
+             + "&timeout=0&limit=1";
+
+  http.begin(client, url);
+  int httpCode = http.GET();
+
+  if (httpCode != 200) {
+    http.end();
+    return;
+  }
+
+  String response = http.getString();
+  http.end();
+
+  // Extraer update_id
+  int uidIdx = response.indexOf("\"update_id\":");
+  if (uidIdx == -1) return;
+  int uidStart = uidIdx + 12;
+  int uidEnd = response.indexOf(",", uidStart);
+  if (uidEnd == -1) uidEnd = response.indexOf("}", uidStart);
+  ultimoUpdateId = response.substring(uidStart, uidEnd).toInt();
+
+  // Buscar callback_data (botones inline)
+  String comando = "";
+  int dataIdx = response.indexOf("\"data\":\"");
+  if (dataIdx != -1) {
+    int dataStart = dataIdx + 8;
+    int dataEnd = response.indexOf("\"", dataStart);
+    comando = response.substring(dataStart, dataEnd);
+
+    // Guardar callback ID para responder después
+    int cbIdx = response.indexOf("\"callback_query\":{\"id\":\"");
+    if (cbIdx != -1) {
+      int cbStart = cbIdx + 23;
+      int cbEnd = response.indexOf("\"", cbStart);
+      callbackPendiente = response.substring(cbStart, cbEnd);
+    }
+  }
+
+  // Buscar comando de texto (/on, /off, etc.)
+  if (comando == "") {
+    int textIdx = response.lastIndexOf("\"text\":\"");
+    if (textIdx != -1) {
+      int textStart = textIdx + 8;
+      int textEnd = response.indexOf("\"", textStart);
+      comando = response.substring(textStart, textEnd);
+      if (comando.startsWith("/")) comando = comando.substring(1);
+      comando.toLowerCase();
+    }
+  }
+
+  if (comando == "") return;
+
+  comandoPendiente = comando;
+}
+
+void procesarComando(String comando) {
+  if (comando == "on" || comando == "prender") {
+    modoManual = true;
+    digitalWrite(PIN_RELE, HIGH);
+    luzEncendida = true;
+    enviarTelegramConBotones("Luz ENCENDIDA (manual)");
+    Serial.println("Telegram: luz ON manual");
+
+  } else if (comando == "off" || comando == "apagar") {
+    modoManual = true;
+    digitalWrite(PIN_RELE, LOW);
+    luzEncendida = false;
+    enviarTelegramConBotones("Luz APAGADA (manual)");
+    Serial.println("Telegram: luz OFF manual");
+
+  } else if (comando == "auto" || comando == "automatico") {
+    modoManual = false;
+    digitalWrite(PIN_RELE, LOW);
+    luzEncendida = false;
+    enviarTelegramConBotones("Modo AUTOMATICO activado");
+    Serial.println("Telegram: modo auto");
+
+  } else if (comando == "status" || comando == "estado") {
+    String msg = "Estado del sensor:\n";
+    msg += "Modo: " + String(modoManual ? "MANUAL" : "AUTOMATICO") + "\n";
+    msg += "Luz: " + String(luzEncendida ? "ENCENDIDA" : "APAGADA") + "\n";
+    msg += "Horario: " + String(modoNocturno ? "nocturno" : "diurno") + "\n";
+    msg += "Activaciones hoy: " + String(contadorDiario);
+    enviarTelegramConBotones(msg);
+  }
+}
+
+void responderCallback(String callbackId) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  String url = "https://api.telegram.org/bot" + BOT_TOKEN
+             + "/answerCallbackQuery?callback_query_id=" + callbackId;
+  http.begin(client, url);
+  http.GET();
+  http.end();
 }
 
 void calcularAmanecerAtardecer() {
@@ -218,5 +370,30 @@ void enviarTelegram(String mensaje) {
   http.begin(client, url);
   int httpCode = http.GET();
   Serial.println("Telegram HTTP: " + String(httpCode));
+  http.end();
+}
+
+void enviarTelegramConBotones(String mensaje) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  String keyboard = "{\"inline_keyboard\":["
+    "[{\"text\":\"Prender\",\"callback_data\":\"on\"},"
+     "{\"text\":\"Apagar\",\"callback_data\":\"off\"}],"
+    "[{\"text\":\"Auto\",\"callback_data\":\"auto\"},"
+     "{\"text\":\"Estado\",\"callback_data\":\"status\"}]"
+    "]}";
+
+  String url = "https://api.telegram.org/bot" + BOT_TOKEN
+             + "/sendMessage?chat_id=" + CHAT_ID
+             + "&text=" + urlEncode(mensaje)
+             + "&reply_markup=" + urlEncode(keyboard);
+
+  http.begin(client, url);
+  int httpCode = http.GET();
+  Serial.println("Telegram botones HTTP: " + String(httpCode));
   http.end();
 }

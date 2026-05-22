@@ -11,7 +11,12 @@ Sistema completo probado y operativo: PIR + Relé + WiFi + Telegram + OTA + modo
 ## Funcionalidades
 
 - **Detección PIR** con luz (relé) — solo de noche
-- **Notificaciones Telegram** con cooldown de 60 seg (indica modo nocturno/diurno)
+- **Control remoto por Telegram** con botones inline
+  - **Prender** / **Apagar** — control manual de la luz
+  - **Auto** — vuelve al modo automático (PIR + nocturno)
+  - **Estado** — muestra modo, luz, horario y activaciones
+  - Comandos de texto: `/on`, `/off`, `/auto`, `/estado`
+  - Polling cada 5 segundos via getUpdates
 - **OTA (Over The Air)** — actualización inalámbrica sin cable USB
   - Hostname: `sensor-pasillo`
   - Password: `pablo123`
